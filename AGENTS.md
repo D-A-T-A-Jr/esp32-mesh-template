@@ -1,16 +1,69 @@
 # ESP32 Mesh Node — guia pra agentes de código
 
 Este repo é um template: um clone dele = uma placa física na malha, com seus próprios
-sensores. Todo repo derivado deve seguir esta mesma estrutura pra funcionar junto com os
-outros nós.
+sensores. Todo repo derivado compartilha a mesma malha com N outros repos clonados do
+mesmo template — decisões aqui afetam placas que este agente pode nem estar vendo.
+
+## Antes de mexer em qualquer coisa
+
+**Pode editar livremente:** `src/main.cpp` inteiro (é o ponto de customização).
+
+**Pode editar com cuidado, avisando o motivo no commit:** as constantes configuráveis
+listadas abaixo, em `mesh_node_core.cpp`.
+
+**Não edite `mesh_node_core.h`/`mesh_node_core.cpp` fora dessas constantes** sem um
+motivo concreto (bug real no núcleo). Se editar mesmo assim, a mudança precisa ser
+propagada pros outros repos da mesma malha — um núcleo divergente entre placas quebra a
+malha de formas difíceis de depurar (protocolo `hello`/mensagens incompatíveis, canal
+WiFi diferente, etc). Se não tiver certeza se algo é "customização" ou "núcleo", trate
+como núcleo e não mexa.
+
+## O que É configurável (topo de `mesh_node_core.cpp`)
+
+| Constante | Efeito | Cuidado ao mudar |
+|---|---|---|
+| `ROUTER_CHANNEL` | Canal WiFi do roteador | Tem que bater com o canal real (ver seção abaixo). Errado = WiFi nunca conecta. |
+| `PUBLISH_CYCLE_MS` | Intervalo entre rajadas de publish | Mais baixo = dado mais fresco, mais tráfego de rádio. Cada placa decide o próprio valor, não precisa ser igual entre elas. |
+| `NODE_BROADCAST_INTERVAL_MS` | Intervalo do "hello" que cada nó manda pra malha | Mais baixo = malha percebe nó sem WiFi mais rápido, mais tráfego. |
+| `BURST_CONNECT_TIMEOUT_MS` | Quanto tempo espera WiFi/MQTT conectar antes de desistir da rajada | Rede mais lenta pode precisar de mais tempo. |
+| `ATTR_WAIT_MS` | Quanto tempo espera resposta do ThingsBoard sobre firmware novo | Rede mais lenta pode precisar de mais tempo. |
+| `OTA_CHUNK_TIMEOUT_MS` / `OTA_CHUNK_SIZE` | Timeout e tamanho de chunk do download de OTA | Chunk maior = menos round-trips, mais RAM usada por vez. |
+| `MAX_PENDING` | Quantas mensagens de vizinho sem WiFi ficam em fila esperando repasse | Vizinho muito falante ou rajada rara pode precisar de mais. |
+| `MESH_PREFIX` / `MESH_PASSWORD` | Nome/senha da malha | **Precisa ser idêntico em TODOS os repos da mesma malha.** Mudar num repo só isola ele dos outros. |
+
+## O que NÃO fazer (motivo: já quebrou antes, ver histórico abaixo)
+
+- **Não** chamar `mesh.stationManual()` condicionalmente (só quando "eleito" gateway,
+  ou só às vezes). Todo nó chama sempre, incondicional, no `meshNodeSetup()`. Uma
+  eleição de gateway já foi tentada aqui e causava instabilidade de reconexão; o design
+  atual (todo nó tenta WiFi sempre, a lib cai pra malha sozinha se não achar o
+  roteador) é mais simples e mais estável.
+- **Não** usar `mesh.initAsBridge()` / `mesh.initAsSharedGateway()` (recursos do fork
+  Alteriom do painlessMesh). Foram testados neste projeto e se mostraram menos
+  confiáveis que a combinação atual (`mesh.init()` + `stationManual()` na lib
+  corrigida). Ver `PAINLESSMESH_FORK_TASK.md` no repo original se precisar do histórico
+  completo de testes.
+- **Não** manter a conexão MQTT aberta fora da janela da rajada (`runPublishBurst`),
+  nem remover o `WiFi.mode(WIFI_STA)` / `WiFi.mode(WIFI_AP_STA)` dentro dela. AP da
+  malha ativo + conexão externa persistente é instável no rádio único do ESP32 —
+  testado e confirmado, não é suposição.
+- **Não** renomear os campos do JSON usado no `hello` (`type`, `node_id`, `uptime_ms`,
+  `has_wifi`) nem no relay (`v1/gateway/telemetry`) sem atualizar TODOS os repos da
+  malha ao mesmo tempo — são o "protocolo" entre nós.
+- **Não** mudar o formato `NODE_<id>_TOKEN` / `NODE_<id>_NAME` do `.env` nem o nome
+  dos campos gerados em `generated_secrets.h` (`NodeCredential`, `NODE_TABLE`,
+  `NODE_TABLE_COUNT`) sem atualizar `scripts/load_env.py` em todos os repos junto.
+- **Não** colocar token, senha de WiFi ou qualquer segredo direto no código. Sempre via
+  `.env` → `generated_secrets.h` (gerado, gitignored).
+- **Não** usar `delay()` dentro de `appLoop()` — trava a malha inteira enquanto durar.
 
 ## Arquitetura
 
-- `src/mesh_node_core.h` / `mesh_node_core.cpp` — núcleo compartilhado. **Não edite.**
-  Cuida de: formar a malha (painlessMesh), priorizar WiFi direto (cai pra retransmitir
-  via vizinho sozinho se não achar o roteador), publicar telemetria própria, repassar
-  telemetria de vizinho sem WiFi via Gateway API do ThingsBoard.
-- `src/main.cpp` — **é aqui que você mexe.** Implementa 3 hooks:
+- `src/mesh_node_core.h` / `mesh_node_core.cpp` — núcleo compartilhado. Cuida de:
+  formar a malha (painlessMesh), priorizar WiFi direto (cai pra retransmitir via
+  vizinho sozinho se não achar o roteador), publicar telemetria própria, repassar
+  telemetria de vizinho sem WiFi via Gateway API do ThingsBoard, e OTA.
+- `src/main.cpp` — implementa 3 hooks:
   - `appSetup()` — inicializa os sensores/atuadores dessa placa.
   - `appLoop()` — leitura contínua (sem `delay()`, roda todo ciclo do loop principal).
   - `appCollectTelemetry(JsonObject &out)` — chamado só quando a placa tem WiFi direto
@@ -24,11 +77,6 @@ malha assim que tenta conectar num roteador externo (GitLab issues #380, #450, #
 
 O `lib_deps` do `platformio.ini` aponta pra `github.com/jonatasperaza/painlessMesh-fixed`
 — fork corrigido, funciona em qualquer máquina que clonar este template.
-
-Devido a essa mesma limitação de rádio único (AP+STA compartilham canal e não dá pra
-manter uma conexão externa persistente com a malha ativa ao mesmo tempo sem instabilidade),
-a publicação de telemetria funciona em "rajadas" curtas (conecta, publica, desconecta) a
-cada 30s, não uma conexão MQTT sempre aberta.
 
 ## Configuração (`.env`, não versionado)
 
@@ -67,8 +115,6 @@ com um app de WiFi no celular.
 1. Edita só `src/main.cpp` — preenche os 3 hooks com os sensores reais.
 2. Adiciona os `lib_deps` que esses sensores precisarem no `platformio.ini` (o template
    não vem com nenhuma lib de sensor por padrão).
-3. Não mexe em `mesh_node_core.h/.cpp` a menos que seja pra corrigir um bug do núcleo
-   em si (nesse caso, propague a correção pros outros repos da malha também).
 
 ## OTA
 
