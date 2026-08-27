@@ -23,7 +23,7 @@ como núcleo e não mexa.
 | Constante | Efeito | Cuidado ao mudar |
 |---|---|---|
 | `ROUTER_CHANNEL` | Canal WiFi de toda a malha (AP + STA) | **Precisa ser idêntico em TODOS os repos da mesma malha**, igual `MESH_PREFIX`. Ver seção "Canal WiFi" — não é auto-detectado por nó, isso quebraria a malha entre placas com roteadores diferentes. |
-| `PUBLISH_CYCLE_MS` | Intervalo entre rajadas de publish | Mais baixo = dado mais fresco, mais tráfego de rádio. Cada placa decide o próprio valor, não precisa ser igual entre elas. |
+| `PUBLISH_CYCLE_DEFAULT_MS` / `_MIN_MS` / `_MAX_MS` | Valor inicial e limites do intervalo entre rajadas de publish | O valor em uso (`publishCycleMs`) pode ser trocado em runtime via atributo compartilhado `publish_cycle_ms` no ThingsBoard — ver seção "Configurar intervalo pelo ThingsBoard". Mudar o default/limites aqui só afeta o que roda até alguém setar o atributo. |
 | `NODE_BROADCAST_INTERVAL_MS` | Intervalo do "hello" que cada nó manda pra malha | Mais baixo = malha percebe nó sem WiFi mais rápido, mais tráfego. |
 | `BURST_CONNECT_TIMEOUT_MS` | Quanto tempo espera WiFi/MQTT conectar antes de desistir da rajada | Rede mais lenta pode precisar de mais tempo. |
 | `ATTR_WAIT_MS` | Quanto tempo espera resposta do ThingsBoard sobre firmware novo | Rede mais lenta pode precisar de mais tempo. |
@@ -244,3 +244,16 @@ TB_URL                     — URL completa (http/https) da API do ThingsBoard
 TB_USERNAME, TB_PASSWORD   — login de tenant admin, pra criar o pacote OTA
 TB_DEVICE_PROFILE_ID       — ID do Device Profile que essas placas usam
 ```
+
+## Configurar intervalo pelo ThingsBoard
+
+`publish_cycle_ms` é um atributo compartilhado (shared attribute) — igual
+`fw_title`/`fw_version` pro OTA, mesmo mecanismo. Seta no device (ou no Device Profile,
+pra afetar todas as placas desse tipo de uma vez) no ThingsBoard, e a placa aplica na
+próxima rajada — não precisa reflashar nem reiniciar. Limites: `PUBLISH_CYCLE_MIN_MS`
+(5s) a `PUBLISH_CYCLE_MAX_MS` (1h) no `mesh_node_core.cpp`; valor fora disso é
+ignorado, mantém o que já estava.
+
+Esse é o mesmo mecanismo (atributo compartilhado, pedido em toda rajada) usado pro OTA
+— ao contrário de RPC, nunca perde o comando por estar desconectado no instante exato,
+só atrasa até a próxima rajada.
