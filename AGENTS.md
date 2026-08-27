@@ -69,3 +69,25 @@ com um app de WiFi no celular.
    não vem com nenhuma lib de sensor por padrão).
 3. Não mexe em `mesh_node_core.h/.cpp` a menos que seja pra corrigir um bug do núcleo
    em si (nesse caso, propague a correção pros outros repos da malha também).
+
+## OTA
+
+O núcleo já suporta atualização remota via ThingsBoard: a cada rajada de publish, a
+placa (se tiver WiFi direto) também pede os atributos compartilhados de firmware; se a
+versão for diferente da instalada (`FW_VERSION`), baixa os chunks, confere o SHA-256 e
+reinicia sozinha. Nada a fazer no `main.cpp` pra isso funcionar.
+
+Publicar uma nova versão é automático: push pra `main` com um
+[commit convencional](https://www.conventionalcommits.org/) (`fix:`, `feat:`, etc.) —
+o workflow builda, cria um pacote OTA no ThingsBoard vinculado ao Device Profile
+(todas as placas desse tipo recebem, não é por device) e faz a release no GitHub.
+
+Secrets necessários no repo (Settings → Secrets and variables → Actions):
+
+```
+WIFI_SSID, WIFI_PASS       — usados só pra buildar (nao pro fluxo de OTA em si)
+TB_HOST                    — host do ThingsBoard
+TB_URL                     — URL completa (http/https) da API do ThingsBoard
+TB_USERNAME, TB_PASSWORD   — login de tenant admin, pra criar o pacote OTA
+TB_DEVICE_PROFILE_ID       — ID do Device Profile que essas placas usam
+```

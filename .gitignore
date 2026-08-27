@@ -2,3 +2,4 @@
 .vscode/
 .env
 include/generated_secrets.h
+node_modules/

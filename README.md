@@ -21,5 +21,10 @@ Anota o "Node ID" que aparece no boot, cria um device no ThingsBoard, e preenche
 Edita `src/main.cpp` — três funções pra implementar. Não mexe em
 `src/mesh_node_core.*`.
 
+## OTA / release
+
+Push pra `main` (commit convencional) publica firmware novo automaticamente via
+ThingsBoard — ver `AGENTS.md` pros secrets necessários no GitHub.
+
 Ver `AGENTS.md` pra arquitetura completa e o histórico do bug do painlessMesh que essa
 lib corrige.
