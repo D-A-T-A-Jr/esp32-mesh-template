@@ -1,8 +1,8 @@
 # ESP32 Mesh Node
 
-Template pra um nó da rede mesh de sensores (ESP32 + painlessMesh + ThingsBoard). Cada
-placa física clona este repo e customiza `src/main.cpp` com seus próprios sensores; a
-malha (rede, WiFi, MQTT) já vem pronta e não precisa mexer.
+Template pra um nó da rede mesh de sensores (ESP32/ESP8266 + painlessMesh +
+ThingsBoard). Cada placa física clona este repo e customiza `src/main.cpp` com seus
+próprios sensores; a malha (rede, WiFi, MQTT) já vem pronta e não precisa mexer.
 
 ## Uso rápido
 
@@ -12,6 +12,9 @@ cp .env.example .env
 pio run -t upload
 pio device monitor
 ```
+
+Placa ESP8266 (ex. LOLIN/Wemos D1 mini): `pio run -e esp8266 -t upload` (o env padrão
+é `esp32`, ver AGENTS.md).
 
 Anota o "Node ID" que aparece no boot, cria um device no ThingsBoard, e preenche
 `NODE_<id>_TOKEN` / `NODE_<id>_NAME` no `.env` (ver AGENTS.md pros detalhes).

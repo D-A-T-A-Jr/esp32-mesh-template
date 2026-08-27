@@ -3,12 +3,29 @@
 #include <painlessMesh.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#if defined(ESP32)
 #include <Update.h>
 #include "mbedtls/md.h"
+#elif defined(ESP8266)
+#include <Updater.h>
+#include <bearssl/bearssl_hash.h>
+#endif
 
 #include "generated_secrets.h"
 
 static const int LED_PIN = 2;
+
+#if defined(ESP8266)
+static const bool LED_ACTIVE_LOW = true;
+#else
+static const bool LED_ACTIVE_LOW = false;
+#endif
+
+static inline void setLed(bool on)
+{
+  bool physicalHigh = LED_ACTIVE_LOW ? !on : on;
+  digitalWrite(LED_PIN, physicalHigh ? HIGH : LOW);
+}
 
 static const char *MESH_PREFIX = "EstufaMesh";
 static const char *MESH_PASSWORD = "estufa12345";
@@ -55,7 +72,12 @@ size_t otaSize = 0;
 size_t otaWritten = 0;
 int otaChunkIndex = 0;
 unsigned long lastChunkAt = 0;
+
+#if defined(ESP32)
 mbedtls_md_context_t sha256Ctx;
+#elif defined(ESP8266)
+br_sha256_context sha256Ctx;
+#endif
 
 const char *findDeviceName(uint32_t nodeId)
 {
@@ -99,7 +121,7 @@ void updateStatusLed()
 {
   if (meshHasDirectWifi())
   {
-    digitalWrite(LED_PIN, HIGH);
+    setLed(true);
     return;
   }
 
@@ -107,7 +129,7 @@ void updateStatusLed()
   {
     lastBlink = millis();
     ledState = !ledState;
-    digitalWrite(LED_PIN, ledState ? HIGH : LOW);
+    setLed(ledState);
   }
 }
 
@@ -144,6 +166,7 @@ void publishOTAState(const String &state, const String &error = "")
 
 bool sha256Start()
 {
+#if defined(ESP32)
   const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
   if (!info)
     return false;
@@ -153,6 +176,9 @@ bool sha256Start()
     return false;
   if (mbedtls_md_starts(&sha256Ctx) != 0)
     return false;
+#elif defined(ESP8266)
+  br_sha256_init(&sha256Ctx);
+#endif
 
   sha256Active = true;
   return true;
@@ -160,8 +186,14 @@ bool sha256Start()
 
 void sha256Update(const uint8_t *data, size_t len)
 {
-  if (sha256Active)
-    mbedtls_md_update(&sha256Ctx, data, len);
+  if (!sha256Active)
+    return;
+
+#if defined(ESP32)
+  mbedtls_md_update(&sha256Ctx, data, len);
+#elif defined(ESP8266)
+  br_sha256_update(&sha256Ctx, data, len);
+#endif
 }
 
 bool sha256FinishAndVerify()
@@ -171,14 +203,18 @@ bool sha256FinishAndVerify()
 
   unsigned char hash[32];
 
+#if defined(ESP32)
   if (mbedtls_md_finish(&sha256Ctx, hash) != 0)
   {
     mbedtls_md_free(&sha256Ctx);
     sha256Active = false;
     return false;
   }
-
   mbedtls_md_free(&sha256Ctx);
+#elif defined(ESP8266)
+  br_sha256_out(&sha256Ctx, hash);
+#endif
+
   sha256Active = false;
 
   String actual;
@@ -201,14 +237,20 @@ void sha256Abort()
 {
   if (sha256Active)
   {
+#if defined(ESP32)
     mbedtls_md_free(&sha256Ctx);
+#endif
     sha256Active = false;
   }
 }
 
 void failOTA(const String &reason)
 {
+#if defined(ESP32)
   Update.abort();
+#endif
+  // ESP8266 Updater nao tem abort(): o proximo Update.begin() ja reresolve o
+  // estado interno sozinho quando uma OTA anterior ficou pela metade.
   sha256Abort();
   publishOTAState("FAILED", reason);
   otaInProgress = false;
@@ -525,7 +567,7 @@ void onMeshTopologyChanged()
 void meshNodeSetup()
 {
   pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  setLed(false);
 
   Serial.begin(115200);
   delay(500);

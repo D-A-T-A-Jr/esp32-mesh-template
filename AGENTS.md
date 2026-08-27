@@ -116,6 +116,26 @@ com um app de WiFi no celular.
 2. Adiciona os `lib_deps` que esses sensores precisarem no `platformio.ini` (o template
    não vem com nenhuma lib de sensor por padrão).
 
+## ESP8266
+
+`platformio.ini` tem `[env:esp32]` (default) e `[env:esp8266]` (board `d1_mini`), os
+dois compilando o mesmo `mesh_node_core.cpp`/`main.cpp`. Pra buildar/gravar no ESP8266:
+`pio run -e esp8266` / `pio run -e esp8266 -t upload`.
+
+`mesh_node_core.cpp` já isola as duas diferenças reais de plataforma via
+`#if defined(ESP32) / #elif defined(ESP8266)` — não precisa mexer nisso:
+
+- **SHA-256 do OTA**: mbedtls no ESP32, BearSSL (`bearssl/bearssl_hash.h`) no ESP8266
+  (o core do ESP8266 não embute mbedtls).
+- **Header de OTA**: `Update.h` no ESP32, `Updater.h` no ESP8266 — e nessa a classe não
+  tem `.abort()` (o próximo `Update.begin()` já limpa o estado sozinho).
+- **LED onboard**: `LED_ACTIVE_LOW` inverte a polaridade (D1 mini liga com `LOW`). Use
+  sempre `setLed(bool)` no núcleo, nunca `digitalWrite(LED_PIN, ...)` direto.
+
+`scripts/build_and_upload_ota.py` só builda `ENV_NAME="esp32"` — se for distribuir OTA
+pra placas ESP8266 também, duplique o script/job apontando pro outro Device Profile e
+env, não misture os dois binários no mesmo pacote OTA.
+
 ## OTA
 
 O núcleo já suporta atualização remota via ThingsBoard: a cada rajada de publish, a
