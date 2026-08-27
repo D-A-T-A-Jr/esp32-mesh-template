@@ -22,10 +22,8 @@ O painlessMesh oficial (e forks) tem um bug conhecido sem correção: `stationMa
 reaproveita o scan de descoberta de peer da malha, deixando o nó cego pros outros nós da
 malha assim que tenta conectar num roteador externo (GitLab issues #380, #450, #279).
 
-O `lib_deps` do `platformio.ini` aponta pra uma cópia local corrigida do painlessMesh
-(`file://C:/Users/User/Documents/LibFix/painlessMesh_gitlab`). **Antes de clonar este
-template pra outra máquina**, publique essa lib corrigida num repositório git próprio e
-troque o `lib_deps` pra apontar pra URL git, não pro caminho local absoluto.
+O `lib_deps` do `platformio.ini` aponta pra `github.com/jonatasperaza/painlessMesh-fixed`
+— fork corrigido, funciona em qualquer máquina que clonar este template.
 
 Devido a essa mesma limitação de rádio único (AP+STA compartilham canal e não dá pra
 manter uma conexão externa persistente com a malha ativa ao mesmo tempo sem instabilidade),
