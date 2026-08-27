@@ -598,8 +598,11 @@ void printDebugStatus()
 }
 #endif
 
-int32_t resolveRouterChannel()
+void warnIfRouterChannelMismatch()
 {
+  // So avisa -- nao usa o resultado pra decidir o canal da malha. O canal
+  // tem que ser IGUAL em todo repo da mesma malha (feito nao acontece se
+  // cada no escolhe o canal do proprio roteador, ver AGENTS.md).
   WiFi.mode(WIFI_STA);
   int found = WiFi.scanNetworks();
 
@@ -607,18 +610,22 @@ int32_t resolveRouterChannel()
   {
     if (WiFi.SSID(i) == String(WIFI_SSID))
     {
-      int32_t channel = WiFi.channel(i);
-      Serial.print("[SYS] Roteador achado no canal ");
-      Serial.println(channel);
+      int32_t realChannel = WiFi.channel(i);
+      if (realChannel != ROUTER_CHANNEL)
+      {
+        Serial.print("[SYS] Aviso: roteador esta no canal ");
+        Serial.print(realChannel);
+        Serial.print(", mas ROUTER_CHANNEL da malha esta em ");
+        Serial.print(ROUTER_CHANNEL);
+        Serial.println(" -- WiFi direto nunca vai conectar assim.");
+      }
       WiFi.scanDelete();
-      return channel;
+      return;
     }
   }
 
-  Serial.print("[SYS] Roteador nao visivel no scan, usando ROUTER_CHANNEL fallback: ");
-  Serial.println(ROUTER_CHANNEL);
+  Serial.println("[SYS] Roteador nao visivel no scan de boot.");
   WiFi.scanDelete();
-  return ROUTER_CHANNEL;
 }
 
 void meshNodeSetup()
@@ -629,14 +636,14 @@ void meshNodeSetup()
   Serial.begin(115200);
   delay(500);
 
-  int32_t channel = resolveRouterChannel();
+  warnIfRouterChannelMismatch();
 
   #ifdef MESH_DEBUG
   mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
 #else
   mesh.setDebugMsgTypes(ERROR | STARTUP);
 #endif
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT, WIFI_AP_STA, channel);
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT, WIFI_AP_STA, ROUTER_CHANNEL);
 
   mesh.onReceive(&onMeshReceive);
   mesh.onNewConnection(&onNewMeshConnection);

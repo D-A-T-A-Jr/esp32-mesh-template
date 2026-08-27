@@ -22,7 +22,7 @@ como núcleo e não mexa.
 
 | Constante | Efeito | Cuidado ao mudar |
 |---|---|---|
-| `ROUTER_CHANNEL` | Canal usado se o roteador não aparecer no scan de boot | Só é fallback — o boot já escaneia e acha o canal real do `WIFI_SSID` sozinho (ver seção "Canal WiFi"). |
+| `ROUTER_CHANNEL` | Canal WiFi de toda a malha (AP + STA) | **Precisa ser idêntico em TODOS os repos da mesma malha**, igual `MESH_PREFIX`. Ver seção "Canal WiFi" — não é auto-detectado por nó, isso quebraria a malha entre placas com roteadores diferentes. |
 | `PUBLISH_CYCLE_MS` | Intervalo entre rajadas de publish | Mais baixo = dado mais fresco, mais tráfego de rádio. Cada placa decide o próprio valor, não precisa ser igual entre elas. |
 | `NODE_BROADCAST_INTERVAL_MS` | Intervalo do "hello" que cada nó manda pra malha | Mais baixo = malha percebe nó sem WiFi mais rápido, mais tráfego. |
 | `BURST_CONNECT_TIMEOUT_MS` | Quanto tempo espera WiFi/MQTT conectar antes de desistir da rajada | Rede mais lenta pode precisar de mais tempo. |
@@ -106,17 +106,22 @@ placa não identificada num device errado).
 
 ## Canal WiFi
 
-O boot já escaneia as redes visíveis (`resolveRouterChannel()`) e acha sozinho o canal
-real do `WIFI_SSID` configurado no `.env` — não precisa descobrir/configurar isso na
-mão. `ROUTER_CHANNEL` só entra em uso se o roteador não aparecer nesse scan (fora de
-alcance, desligado etc.).
+`ROUTER_CHANNEL` é o canal de rádio de **toda a malha** (AP da malha + STA de cada nó)
+— fixo no código, igual em todo repo, exatamente como `MESH_PREFIX`/`MESH_PASSWORD`.
+Não é auto-detectado por nó: o ESP32/ESP8266 só opera 1 canal por vez pra AP+STA, e
+dois nós só formam malha entre si se estiverem no mesmo canal. Se cada placa
+escolhesse o canal do próprio roteador, placas com roteadores diferentes nunca se
+enxergariam — e a malha (o "se um cair, o outro segura") é o requisito mais importante
+do projeto, prioridade acima de qualquer placa individual conseguir WiFi direto.
 
-Limite físico que isso não resolve: o ESP32/ESP8266 só opera em 1 canal por vez pra
-AP+STA, e dois nós só formam malha entre si se estiverem no mesmo canal. Se placas
-diferentes miram roteadores diferentes que caem em canais diferentes, elas não vão se
-enxergar na malha — isso é limitação de rádio, não tem correção por software. Numa
-implantação normal (todas as placas no mesmo local, mesmo roteador) isso não é
-problema.
+O boot faz um scan e **avisa** (não decide sozinho) se o seu `WIFI_SSID` está num canal
+diferente do `ROUTER_CHANNEL` configurado (`warnIfRouterChannelMismatch()`) — nesse
+caso, aquela placa especificamente nunca vai conseguir WiFi direto, só vai
+relay/receber relay via malha, o que ainda é o comportamento correto do sistema.
+
+Pra descobrir o canal certo pra configurar: no painel do roteador, ou um app de WiFi no
+celular. Numa implantação normal (todas as placas na mesma estufa, mesmo roteador),
+configure `ROUTER_CHANNEL` pro canal desse roteador em todos os repos e pronto.
 
 ## Ao criar um novo tipo de placa
 
