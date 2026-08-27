@@ -64,11 +64,18 @@ como núcleo e não mexa.
   formar a malha (painlessMesh), priorizar WiFi direto (cai pra retransmitir via
   vizinho sozinho se não achar o roteador), publicar telemetria própria, repassar
   telemetria de vizinho sem WiFi via Gateway API do ThingsBoard, e OTA.
-- `src/main.cpp` — implementa 3 hooks:
+- `src/main.cpp` — implementa 4 hooks:
   - `appSetup()` — inicializa os sensores/atuadores dessa placa.
   - `appLoop()` — leitura contínua (sem `delay()`, roda todo ciclo do loop principal).
   - `appCollectTelemetry(JsonObject &out)` — chamado só quando a placa tem WiFi direto
     e vai publicar; adiciona os campos dessa placa em `out`.
+  - `appHandleRpc(const String &method, JsonVariantConst params, JsonDocument &response)`
+    — chamado quando chega um RPC do ThingsBoard (`v1/devices/me/rpc/request/+`).
+    Preenche `response` só se quiser responder (vazio = não publica nada). No modo
+    malha só chega se a placa estiver conectada bem naquele instante (rajada de
+    publish) — RPC não fica em fila, comando fora da janela de conexão se perde sem
+    erro nem aviso. No modo standalone (`MESH_ENABLED=0`) a conexão é persistente,
+    então chega sempre.
 
 ## Por que essa arquitetura (bug histórico)
 
@@ -159,8 +166,7 @@ da malha existir:
   obriga a malha a fazer rajadas, então fica sempre conectado ao MQTT).
 - Usa `TB_TOKEN` do `.env` direto (device único no ThingsBoard, sem `NODE_TABLE`).
 - OTA continua funcionando igual (mesmo código, não depende de malha).
-- `appSetup()`/`appLoop()`/`appCollectTelemetry()` no `main.cpp` continuam os mesmos 3
-  hooks — o `main.cpp` não muda entre os dois modos.
+- Os 4 hooks do `main.cpp` continuam os mesmos — não muda entre os dois modos.
 
 Não tem fallback nesse modo: se a placa perder WiFi, fica tentando reconectar sozinha
 (sem vizinho pra repassar telemetria por ela). É a troca consciente ao desligar a
@@ -168,7 +174,7 @@ malha.
 
 ## Ao criar um novo tipo de placa
 
-1. Edita só `src/main.cpp` — preenche os 3 hooks com os sensores reais.
+1. Edita só `src/main.cpp` — preenche os 4 hooks com os sensores reais.
 2. Adiciona os `lib_deps` que esses sensores precisarem no `platformio.ini` (o template
    não vem com nenhuma lib de sensor por padrão).
 

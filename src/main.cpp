@@ -12,6 +12,10 @@ void appCollectTelemetry(JsonObject &out)
 {
 }
 
+void appHandleRpc(const String &method, JsonVariantConst params, JsonDocument &response)
+{
+}
+
 void setup()
 {
   meshNodeSetup();

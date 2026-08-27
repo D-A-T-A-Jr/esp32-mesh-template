@@ -57,6 +57,7 @@ static const char *TOPIC_TELEMETRY = "v1/devices/me/telemetry";
 static const char *TOPIC_ATTRIBUTES = "v1/devices/me/attributes";
 static const char *TOPIC_ATTR_RESPONSE = "v1/devices/me/attributes/response/+";
 static const char *TOPIC_FW_RESPONSE = "v2/fw/response/+/chunk/+";
+static const char *TOPIC_RPC_REQUEST = "v1/devices/me/rpc/request/+";
 
 WiFiManager wm;
 String provisionedSSID;
@@ -385,6 +386,35 @@ void requestSharedAttributes()
   mqtt.publish(topic.c_str(), "{\"sharedKeys\":\"fw_title,fw_version,fw_size,fw_checksum,fw_checksum_algorithm\"}");
 }
 
+void handleRpcRequest(const String &topicStr, uint8_t *payload, unsigned int length)
+{
+  String requestId = topicStr.substring(topicStr.lastIndexOf('/') + 1);
+
+  String msg;
+  msg.reserve(length + 1);
+  for (unsigned int i = 0; i < length; i++)
+    msg += (char)payload[i];
+
+  JsonDocument doc;
+  if (deserializeJson(doc, msg))
+    return;
+
+  String method = doc["method"] | "";
+  if (!method.length())
+    return;
+
+  JsonDocument response;
+  appHandleRpc(method, doc["params"], response);
+
+  if (!response.isNull())
+  {
+    String responseJson;
+    serializeJson(response, responseJson);
+    String responseTopic = "v1/devices/me/rpc/response/" + requestId;
+    mqtt.publish(responseTopic.c_str(), responseJson.c_str());
+  }
+}
+
 void mqttCallback(char *topic, uint8_t *payload, unsigned int length)
 {
   String topicStr = String(topic);
@@ -392,6 +422,12 @@ void mqttCallback(char *topic, uint8_t *payload, unsigned int length)
   if (topicStr.startsWith("v2/fw/response/"))
   {
     handleFirmwareChunk(payload, length);
+    return;
+  }
+
+  if (topicStr.startsWith("v1/devices/me/rpc/request/"))
+  {
+    handleRpcRequest(topicStr, payload, length);
     return;
   }
 
@@ -505,6 +541,7 @@ void runPublishBurst()
     mqtt.subscribe(TOPIC_ATTRIBUTES);
     mqtt.subscribe(TOPIC_ATTR_RESPONSE);
     mqtt.subscribe(TOPIC_FW_RESPONSE);
+    mqtt.subscribe(TOPIC_RPC_REQUEST);
 
     for (int i = 0; i < pendingCount; i++)
       forwardToThingsBoard(pendingMsgs[i].fromNodeId, pendingMsgs[i].uptimeMs);
@@ -676,6 +713,7 @@ void standaloneEnsureMqttConnected()
     mqtt.subscribe(TOPIC_ATTRIBUTES);
     mqtt.subscribe(TOPIC_ATTR_RESPONSE);
     mqtt.subscribe(TOPIC_FW_RESPONSE);
+    mqtt.subscribe(TOPIC_RPC_REQUEST);
     requestSharedAttributes();
   }
 }

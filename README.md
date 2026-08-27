@@ -25,7 +25,7 @@ Anota o "Node ID" que aparece no boot, cria um device no ThingsBoard, e preenche
 
 ## Customizando os sensores
 
-Edita `src/main.cpp` — três funções pra implementar. Não mexe em
+Edita `src/main.cpp` — quatro funções pra implementar. Não mexe em
 `src/mesh_node_core.*`.
 
 ## OTA / release
