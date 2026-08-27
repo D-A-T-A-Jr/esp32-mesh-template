@@ -154,11 +154,21 @@ duplicar `lib_deps`). Com isso ligado, `mesh_node_core.cpp` imprime no Serial:
   canal, RSSI, IP), e quantos nós a malha enxerga.
 - no fim de cada rajada de publish (`runPublishBurst`): se o WiFi conectou e se o MQTT
   conectou.
+- log interno `CONNECTION` da própria painlessMesh (`mesh.setDebugMsgTypes`) — mostra
+  o ciclo de scan/conexão do `stationManual()` linha a linha (`stationScan()`,
+  `scanComplete()`, APs achados, `connectToAP()`). Útil quando o `wifi_status=` fica
+  parado em `0` (idle) e não muda nunca: se esse log também não aparecer, o problema é
+  a tarefa de scan não estar rodando, não a rede em si.
 
-Use pra diagnosticar "não conecta no WiFi" — o print de `channel=` ajuda a achar
-descompasso com `ROUTER_CHANNEL` (causa mais comum: roteador/hotspot num canal
-diferente do configurado). É só diagnóstico, não muda nenhum comportamento do núcleo;
-pode ligar/desligar à vontade sem afetar os envs de produção.
+Se o WiFi ficar preso em `wifi_status=0` por bastante tempo (minutos) sem nenhum log
+`CONNECTION` aparecer, mesmo com a rede alvo visível: já aconteceu de um ESP8266 real
+"empacar" o rádio depois de muitos reflashes/resets via software seguidos (reset por
+RTS/software não reinicializa a calibração de RF). Um power-cycle de verdade
+(desconectar e reconectar o USB) resolveu — vale tentar antes de desconfiar de bug de
+código.
+
+É só diagnóstico, não muda nenhum comportamento do núcleo; pode ligar/desligar à
+vontade sem afetar os envs de produção.
 
 ## OTA
 

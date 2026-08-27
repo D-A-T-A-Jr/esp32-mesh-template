@@ -631,7 +631,11 @@ void meshNodeSetup()
 
   int32_t channel = resolveRouterChannel();
 
+  #ifdef MESH_DEBUG
+  mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
+#else
   mesh.setDebugMsgTypes(ERROR | STARTUP);
+#endif
   mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT, WIFI_AP_STA, channel);
 
   mesh.onReceive(&onMeshReceive);
