@@ -1,0 +1,4 @@
+.pio/
+.vscode/
+.env
+include/generated_secrets.h
