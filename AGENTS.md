@@ -22,7 +22,7 @@ como núcleo e não mexa.
 
 | Constante | Efeito | Cuidado ao mudar |
 |---|---|---|
-| `ROUTER_CHANNEL` | Canal WiFi do roteador | Tem que bater com o canal real (ver seção abaixo). Errado = WiFi nunca conecta. |
+| `ROUTER_CHANNEL` | Canal usado se o roteador não aparecer no scan de boot | Só é fallback — o boot já escaneia e acha o canal real do `WIFI_SSID` sozinho (ver seção "Canal WiFi"). |
 | `PUBLISH_CYCLE_MS` | Intervalo entre rajadas de publish | Mais baixo = dado mais fresco, mais tráfego de rádio. Cada placa decide o próprio valor, não precisa ser igual entre elas. |
 | `NODE_BROADCAST_INTERVAL_MS` | Intervalo do "hello" que cada nó manda pra malha | Mais baixo = malha percebe nó sem WiFi mais rápido, mais tráfego. |
 | `BURST_CONNECT_TIMEOUT_MS` | Quanto tempo espera WiFi/MQTT conectar antes de desistir da rajada | Rede mais lenta pode precisar de mais tempo. |
@@ -106,9 +106,17 @@ placa não identificada num device errado).
 
 ## Canal WiFi
 
-`ROUTER_CHANNEL` em `mesh_node_core.cpp` precisa bater com o canal do seu roteador (o
-ESP32 só opera em 1 canal por vez pra AP+STA). Descubra o canal no painel do roteador ou
-com um app de WiFi no celular.
+O boot já escaneia as redes visíveis (`resolveRouterChannel()`) e acha sozinho o canal
+real do `WIFI_SSID` configurado no `.env` — não precisa descobrir/configurar isso na
+mão. `ROUTER_CHANNEL` só entra em uso se o roteador não aparecer nesse scan (fora de
+alcance, desligado etc.).
+
+Limite físico que isso não resolve: o ESP32/ESP8266 só opera em 1 canal por vez pra
+AP+STA, e dois nós só formam malha entre si se estiverem no mesmo canal. Se placas
+diferentes miram roteadores diferentes que caem em canais diferentes, elas não vão se
+enxergar na malha — isso é limitação de rádio, não tem correção por software. Numa
+implantação normal (todas as placas no mesmo local, mesmo roteador) isso não é
+problema.
 
 ## Ao criar um novo tipo de placa
 
@@ -135,6 +143,22 @@ dois compilando o mesmo `mesh_node_core.cpp`/`main.cpp`. Pra buildar/gravar no E
 `scripts/build_and_upload_ota.py` só builda `ENV_NAME="esp32"` — se for distribuir OTA
 pra placas ESP8266 também, duplique o script/job apontando pro outro Device Profile e
 env, não misture os dois binários no mesmo pacote OTA.
+
+## Debug
+
+`[env:esp32_debug]` / `[env:esp8266_debug]` compilam o mesmo firmware do env base
+correspondente, só com `-D MESH_DEBUG` a mais (`extends` no `platformio.ini`, sem
+duplicar `lib_deps`). Com isso ligado, `mesh_node_core.cpp` imprime no Serial:
+
+- a cada 5s: status do WiFi direto (`WiFi.status()`, `meshHasDirectWifi()`, SSID,
+  canal, RSSI, IP), e quantos nós a malha enxerga.
+- no fim de cada rajada de publish (`runPublishBurst`): se o WiFi conectou e se o MQTT
+  conectou.
+
+Use pra diagnosticar "não conecta no WiFi" — o print de `channel=` ajuda a achar
+descompasso com `ROUTER_CHANNEL` (causa mais comum: roteador/hotspot num canal
+diferente do configurado). É só diagnóstico, não muda nenhum comportamento do núcleo;
+pode ligar/desligar à vontade sem afetar os envs de produção.
 
 ## OTA
 

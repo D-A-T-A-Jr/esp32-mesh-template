@@ -473,6 +473,13 @@ void runPublishBurst()
     delay(200);
   }
 
+#ifdef MESH_DEBUG
+  Serial.print("[DEBUG] burst wifi_connected=");
+  Serial.print(WiFi.status() == WL_CONNECTED);
+  Serial.print(" mqtt_connected=");
+  Serial.println(connected);
+#endif
+
   if (connected)
   {
     mqtt.subscribe(TOPIC_ATTRIBUTES);
@@ -564,6 +571,56 @@ void onMeshTopologyChanged()
   Serial.println(mesh.getNodeList().size());
 }
 
+#ifdef MESH_DEBUG
+unsigned long lastDebugPrintAt = 0;
+static const unsigned long DEBUG_PRINT_INTERVAL_MS = 5000;
+
+void printDebugStatus()
+{
+  if (millis() - lastDebugPrintAt < DEBUG_PRINT_INTERVAL_MS)
+    return;
+  lastDebugPrintAt = millis();
+
+  Serial.print("[DEBUG] wifi_status=");
+  Serial.print(WiFi.status());
+  Serial.print(" has_direct_wifi=");
+  Serial.print(meshHasDirectWifi());
+  Serial.print(" ssid=");
+  Serial.print(WiFi.SSID());
+  Serial.print(" channel=");
+  Serial.print(WiFi.channel());
+  Serial.print(" rssi=");
+  Serial.print(WiFi.RSSI());
+  Serial.print(" ip=");
+  Serial.print(WiFi.localIP());
+  Serial.print(" mesh_nodes=");
+  Serial.println(mesh.getNodeList().size());
+}
+#endif
+
+int32_t resolveRouterChannel()
+{
+  WiFi.mode(WIFI_STA);
+  int found = WiFi.scanNetworks();
+
+  for (int i = 0; i < found; i++)
+  {
+    if (WiFi.SSID(i) == String(WIFI_SSID))
+    {
+      int32_t channel = WiFi.channel(i);
+      Serial.print("[SYS] Roteador achado no canal ");
+      Serial.println(channel);
+      WiFi.scanDelete();
+      return channel;
+    }
+  }
+
+  Serial.print("[SYS] Roteador nao visivel no scan, usando ROUTER_CHANNEL fallback: ");
+  Serial.println(ROUTER_CHANNEL);
+  WiFi.scanDelete();
+  return ROUTER_CHANNEL;
+}
+
 void meshNodeSetup()
 {
   pinMode(LED_PIN, OUTPUT);
@@ -572,8 +629,10 @@ void meshNodeSetup()
   Serial.begin(115200);
   delay(500);
 
+  int32_t channel = resolveRouterChannel();
+
   mesh.setDebugMsgTypes(ERROR | STARTUP);
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT, WIFI_AP_STA, ROUTER_CHANNEL);
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT, WIFI_AP_STA, channel);
 
   mesh.onReceive(&onMeshReceive);
   mesh.onNewConnection(&onNewMeshConnection);
@@ -611,6 +670,10 @@ void meshNodeLoop()
   mesh.update();
   updateStatusLed();
   appLoop();
+
+#ifdef MESH_DEBUG
+  printDebugStatus();
+#endif
 
   if (millis() - lastHelloAt > NODE_BROADCAST_INTERVAL_MS)
   {
