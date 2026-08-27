@@ -8,7 +8,11 @@ PROJECT_DIR = Path(env.subst("$PROJECT_DIR"))
 ENV_FILE = PROJECT_DIR / ".env"
 OUT_FILE = PROJECT_DIR / "include" / "generated_secrets.h"
 
-REQUIRED_KEYS = ["WIFI_SSID", "WIFI_PASS", "TB_HOST", "TB_PORT", "FW_TITLE", "FW_VERSION"]
+REQUIRED_KEYS = ["TB_HOST", "TB_PORT", "FW_TITLE", "FW_VERSION"]
+
+# So usado por placas standalone (MESH_ENABLED=0 no mesh_node_core.cpp) -- nao
+# obrigatorio no .env porque placas de malha nao precisam dele.
+OPTIONAL_KEYS = ["TB_TOKEN"]
 
 DEFAULTS = {
     "TB_PORT": "1883",
@@ -72,6 +76,10 @@ for key in REQUIRED_KEYS:
         lines.append(f"#define {key} {value}")
     else:
         lines.append(f"#define {key} {cpp_string(value)}")
+
+for key in OPTIONAL_KEYS:
+    if values.get(key):
+        lines.append(f"#define {key} {cpp_string(str(values[key]))}")
 
 lines.append("")
 

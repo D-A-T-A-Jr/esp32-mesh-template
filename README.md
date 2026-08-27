@@ -8,13 +8,17 @@ próprios sensores; a malha (rede, WiFi, MQTT) já vem pronta e não precisa mex
 
 ```
 cp .env.example .env
-# preenche WIFI_SSID, WIFI_PASS, TB_HOST no .env
+# preenche TB_HOST no .env (WiFi nao vai aqui, ver abaixo)
 pio run -t upload
 pio device monitor
 ```
 
 Placa ESP8266 (ex. LOLIN/Wemos D1 mini): `pio run -e esp8266 -t upload` (o env padrão
 é `esp32`, ver AGENTS.md).
+
+No primeiro boot (ou sempre que não achar WiFi salvo), a placa sobe um AP próprio
+(`ESP-<MAC>`) — conecta nele pelo celular e configura a rede pela interface web que
+abre sozinha. Não precisa editar `.env` nem recompilar pra trocar de rede.
 
 Anota o "Node ID" que aparece no boot, cria um device no ThingsBoard, e preenche
 `NODE_<id>_TOKEN` / `NODE_<id>_NAME` no `.env` (ver AGENTS.md pros detalhes).

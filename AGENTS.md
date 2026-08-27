@@ -30,6 +30,7 @@ como núcleo e não mexa.
 | `OTA_CHUNK_TIMEOUT_MS` / `OTA_CHUNK_SIZE` | Timeout e tamanho de chunk do download de OTA | Chunk maior = menos round-trips, mais RAM usada por vez. |
 | `MAX_PENDING` | Quantas mensagens de vizinho sem WiFi ficam em fila esperando repasse | Vizinho muito falante ou rajada rara pode precisar de mais. |
 | `MESH_PREFIX` / `MESH_PASSWORD` | Nome/senha da malha | **Precisa ser idêntico em TODOS os repos da mesma malha.** Mudar num repo só isola ele dos outros. |
+| `MESH_ENABLED` (topo do arquivo, `#define`) | `1` = participa da malha (padrão). `0` = placa standalone, sem malha nenhuma | Ver seção "Modo standalone". Decisão por repo, não precisa ser igual entre placas. |
 
 ## O que NÃO fazer (motivo: já quebrou antes, ver histórico abaixo)
 
@@ -81,16 +82,20 @@ O `lib_deps` do `platformio.ini` aponta pra `github.com/jonatasperaza/painlessMe
 ## Configuração (`.env`, não versionado)
 
 ```
-WIFI_SSID=
-WIFI_PASS=
 TB_HOST=
 TB_PORT=1883
 FW_TITLE=
 FW_VERSION=
 
+# so pra placa standalone (MESH_ENABLED=0)
+TB_TOKEN=
+
+# so pra placa de malha (MESH_ENABLED=1)
 NODE_<id>_TOKEN=
 NODE_<id>_NAME=
 ```
+
+WiFi **não** vem do `.env` — ver seção "Provisionamento WiFi" abaixo.
 
 `<id>` é o "Node ID" que aparece no boot via Serial (`[MESH] Node ID: ...`), derivado do
 MAC da placa. Cria um device por placa no ThingsBoard, pega o token, preenche aqui.
@@ -103,6 +108,25 @@ entre todos os repos da mesma malha.
 Sem uma entrada na `NODE_TABLE` pro Node ID dessa placa, ela ainda participa da malha e
 retransmite pros outros, mas não publica a própria telemetria (evita misturar dado de
 placa não identificada num device errado).
+
+## Provisionamento WiFi (WiFiManager)
+
+A rede WiFi não é fixa no código nem no `.env`: a placa usa `WiFiManager` pra conectar
+com a credencial já salva na flash e, se não conseguir, sobe um AP de configuração
+próprio (`ESP-<MAC>`) — conecta nele pelo celular/notebook e escolhe a rede pela
+interface web do WiFiManager. A credencial fica salva na flash da placa (SDK), não
+precisa reconfigurar a cada boot nem a cada novo firmware.
+
+Placa de malha (`MESH_ENABLED=1`): o portal tem timeout (180s) — se ninguém configurar,
+a placa segue o boot mesmo sem WiFi e participa da malha normalmente como relay (esse é
+o comportamento certo: falta de configuração não pode travar a malha).
+
+Placa standalone (`MESH_ENABLED=0`): sem esse fallback, então o portal fica esperando
+indefinidamente até alguém configurar — não tem pra onde mais essa placa ir sem WiFi.
+
+Depois de conectado, o core lê `WiFi.SSID()`/`WiFi.psk()` (o que o WiFiManager acabou de
+guardar) pra usar como alvo do `stationManual()` — não precisa (e não deve) duplicar
+essas credenciais em nenhuma constante do código.
 
 ## Canal WiFi
 
@@ -122,6 +146,25 @@ relay/receber relay via malha, o que ainda é o comportamento correto do sistema
 Pra descobrir o canal certo pra configurar: no painel do roteador, ou um app de WiFi no
 celular. Numa implantação normal (todas as placas na mesma estufa, mesmo roteador),
 configure `ROUTER_CHANNEL` pro canal desse roteador em todos os repos e pronto.
+
+## Modo standalone (`MESH_ENABLED=0`)
+
+Pra uma placa que não precisa (ou não pode, por posição física) participar da malha:
+muda `#define MESH_ENABLED` pra `0` no topo de `mesh_node_core.cpp`. Isso troca todo o
+comportamento de malha por um fluxo bem mais simples, igual o firmware original antes
+da malha existir:
+
+- Sem `painlessMesh`, sem AP próprio — só `WiFiManager` (ver seção acima) + conexão
+  WiFi direta e persistente (não tem o problema de canal AP+STA compartilhado que
+  obriga a malha a fazer rajadas, então fica sempre conectado ao MQTT).
+- Usa `TB_TOKEN` do `.env` direto (device único no ThingsBoard, sem `NODE_TABLE`).
+- OTA continua funcionando igual (mesmo código, não depende de malha).
+- `appSetup()`/`appLoop()`/`appCollectTelemetry()` no `main.cpp` continuam os mesmos 3
+  hooks — o `main.cpp` não muda entre os dois modos.
+
+Não tem fallback nesse modo: se a placa perder WiFi, fica tentando reconectar sozinha
+(sem vizinho pra repassar telemetria por ela). É a troca consciente ao desligar a
+malha.
 
 ## Ao criar um novo tipo de placa
 
@@ -190,7 +233,6 @@ o workflow builda, cria um pacote OTA no ThingsBoard vinculado ao Device Profile
 Secrets necessários no repo (Settings → Secrets and variables → Actions):
 
 ```
-WIFI_SSID, WIFI_PASS       — usados só pra buildar (nao pro fluxo de OTA em si)
 TB_HOST                    — host do ThingsBoard
 TB_URL                     — URL completa (http/https) da API do ThingsBoard
 TB_USERNAME, TB_PASSWORD   — login de tenant admin, pra criar o pacote OTA

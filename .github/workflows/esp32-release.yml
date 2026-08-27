@@ -17,9 +17,6 @@ jobs:
     env:
       FW_TITLE: esp32-mesh-node
 
-      WIFI_SSID: ${{ secrets.WIFI_SSID }}
-      WIFI_PASS: ${{ secrets.WIFI_PASS }}
-
       TB_HOST: ${{ secrets.TB_HOST }}
       TB_PORT: 1883
 

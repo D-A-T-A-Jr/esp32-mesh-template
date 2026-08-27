@@ -1,6 +1,6 @@
 #include "mesh_node_core.h"
 
-#include <painlessMesh.h>
+#include <WiFiManager.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #if defined(ESP32)
@@ -9,6 +9,13 @@
 #elif defined(ESP8266)
 #include <Updater.h>
 #include <bearssl/bearssl_hash.h>
+#endif
+
+// 0 = placa standalone: WiFiManager + MQTT direto + OTA, sem malha nenhuma.
+#define MESH_ENABLED 1
+
+#if MESH_ENABLED
+#include <painlessMesh.h>
 #endif
 
 #include "generated_secrets.h"
@@ -27,16 +34,21 @@ static inline void setLed(bool on)
   digitalWrite(LED_PIN, physicalHigh ? HIGH : LOW);
 }
 
+#if MESH_ENABLED
 static const char *MESH_PREFIX = "EstufaMesh";
 static const char *MESH_PASSWORD = "estufa12345";
 static const uint16_t MESH_PORT = 5555;
 
-// Canal do roteador WiFi. AP+STA do ESP32 compartilham o mesmo canal.
+// Canal WiFi de TODA a malha (AP + STA). Fixo e igual em todo repo da mesma
+// malha -- ver AGENTS.md, secao "Canal WiFi".
 static const int32_t ROUTER_CHANNEL = 11;
 
 static const unsigned long NODE_BROADCAST_INTERVAL_MS = 5000;
-static const unsigned long PUBLISH_CYCLE_MS = 30000;
 static const unsigned long BURST_CONNECT_TIMEOUT_MS = 10000;
+static const int MAX_PENDING = 10;
+#endif
+
+static const unsigned long PUBLISH_CYCLE_MS = 30000;
 static const unsigned long ATTR_WAIT_MS = 4000;
 static const unsigned long OTA_CHUNK_TIMEOUT_MS = 30000;
 static const size_t OTA_CHUNK_SIZE = 4096;
@@ -46,17 +58,19 @@ static const char *TOPIC_ATTRIBUTES = "v1/devices/me/attributes";
 static const char *TOPIC_ATTR_RESPONSE = "v1/devices/me/attributes/response/+";
 static const char *TOPIC_FW_RESPONSE = "v2/fw/response/+/chunk/+";
 
+WiFiManager wm;
+String provisionedSSID;
+String provisionedPass;
+
+#if MESH_ENABLED
 Scheduler userScheduler;
 painlessMesh mesh;
+#endif
 
 WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
 
 uint32_t meshMyNodeId = 0;
-const char *myToken = nullptr;
-const char *myDeviceName = nullptr;
-
-unsigned long lastHelloAt = 0;
 unsigned long lastPublishCycleAt = 0;
 bool ledState = false;
 unsigned long lastBlink = 0;
@@ -79,42 +93,10 @@ mbedtls_md_context_t sha256Ctx;
 br_sha256_context sha256Ctx;
 #endif
 
-const char *findDeviceName(uint32_t nodeId)
-{
-  for (int i = 0; i < NODE_TABLE_COUNT; i++)
-  {
-    if (NODE_TABLE[i].nodeId == nodeId)
-      return NODE_TABLE[i].name;
-  }
-  return nullptr;
-}
-
 bool meshHasDirectWifi()
 {
-  return WiFi.status() == WL_CONNECTED && WiFi.SSID() == String(WIFI_SSID);
-}
-
-struct PendingMeshMsg
-{
-  uint32_t fromNodeId;
-  unsigned long uptimeMs;
-};
-
-static const int MAX_PENDING = 10;
-PendingMeshMsg pendingMsgs[MAX_PENDING];
-int pendingCount = 0;
-
-void queuePendingMsg(uint32_t fromNodeId, unsigned long uptimeMs)
-{
-  if (pendingCount >= MAX_PENDING)
-  {
-    memmove(pendingMsgs, pendingMsgs + 1, (MAX_PENDING - 1) * sizeof(PendingMeshMsg));
-    pendingCount--;
-  }
-
-  pendingMsgs[pendingCount].fromNodeId = fromNodeId;
-  pendingMsgs[pendingCount].uptimeMs = uptimeMs;
-  pendingCount++;
+  return WiFi.status() == WL_CONNECTED && provisionedSSID.length() > 0 &&
+         WiFi.SSID() == provisionedSSID;
 }
 
 void updateStatusLed()
@@ -249,7 +231,7 @@ void failOTA(const String &reason)
 #if defined(ESP32)
   Update.abort();
 #endif
-  // ESP8266 Updater nao tem abort(): o proximo Update.begin() ja reresolve o
+  // ESP8266 Updater nao tem abort(): o proximo Update.begin() ja reseta o
   // estado interno sozinho quando uma OTA anterior ficou pela metade.
   sha256Abort();
   publishOTAState("FAILED", reason);
@@ -428,6 +410,44 @@ void mqttCallback(char *topic, uint8_t *payload, unsigned int length)
     parseOTAAttributes(doc.as<JsonObject>());
 }
 
+#if MESH_ENABLED
+
+const char *myToken = nullptr;
+const char *myDeviceName = nullptr;
+unsigned long lastHelloAt = 0;
+
+struct PendingMeshMsg
+{
+  uint32_t fromNodeId;
+  unsigned long uptimeMs;
+};
+
+PendingMeshMsg pendingMsgs[MAX_PENDING];
+int pendingCount = 0;
+
+const char *findDeviceName(uint32_t nodeId)
+{
+  for (int i = 0; i < NODE_TABLE_COUNT; i++)
+  {
+    if (NODE_TABLE[i].nodeId == nodeId)
+      return NODE_TABLE[i].name;
+  }
+  return nullptr;
+}
+
+void queuePendingMsg(uint32_t fromNodeId, unsigned long uptimeMs)
+{
+  if (pendingCount >= MAX_PENDING)
+  {
+    memmove(pendingMsgs, pendingMsgs + 1, (MAX_PENDING - 1) * sizeof(PendingMeshMsg));
+    pendingCount--;
+  }
+
+  pendingMsgs[pendingCount].fromNodeId = fromNodeId;
+  pendingMsgs[pendingCount].uptimeMs = uptimeMs;
+  pendingCount++;
+}
+
 void forwardToThingsBoard(uint32_t fromNodeId, unsigned long nodeUptimeMs)
 {
   const char *deviceName = findDeviceName(fromNodeId);
@@ -601,14 +621,16 @@ void printDebugStatus()
 void warnIfRouterChannelMismatch()
 {
   // So avisa -- nao usa o resultado pra decidir o canal da malha. O canal
-  // tem que ser IGUAL em todo repo da mesma malha (feito nao acontece se
-  // cada no escolhe o canal do proprio roteador, ver AGENTS.md).
+  // tem que ser IGUAL em todo repo da mesma malha (ver AGENTS.md).
+  if (provisionedSSID.length() == 0)
+    return;
+
   WiFi.mode(WIFI_STA);
   int found = WiFi.scanNetworks();
 
   for (int i = 0; i < found; i++)
   {
-    if (WiFi.SSID(i) == String(WIFI_SSID))
+    if (WiFi.SSID(i) == provisionedSSID)
     {
       int32_t realChannel = WiFi.channel(i);
       if (realChannel != ROUTER_CHANNEL)
@@ -628,6 +650,61 @@ void warnIfRouterChannelMismatch()
   WiFi.scanDelete();
 }
 
+#endif // MESH_ENABLED
+
+void ensureMqttConfigured()
+{
+  mqtt.setServer(TB_HOST, TB_PORT);
+  mqtt.setCallback(mqttCallback);
+  mqtt.setKeepAlive(60);
+  mqtt.setSocketTimeout(5);
+  mqtt.setBufferSize(4096);
+}
+
+#if !MESH_ENABLED
+unsigned long lastStandaloneReconnectAt = 0;
+
+void standaloneEnsureMqttConnected()
+{
+  if (mqtt.connected() || millis() - lastStandaloneReconnectAt < 3000)
+    return;
+  lastStandaloneReconnectAt = millis();
+
+  String clientId = String(FW_TITLE) + "-" + WiFi.macAddress();
+  if (mqtt.connect(clientId.c_str(), TB_TOKEN, ""))
+  {
+    mqtt.subscribe(TOPIC_ATTRIBUTES);
+    mqtt.subscribe(TOPIC_ATTR_RESPONSE);
+    mqtt.subscribe(TOPIC_FW_RESPONSE);
+    requestSharedAttributes();
+  }
+}
+
+void standaloneLoop()
+{
+  standaloneEnsureMqttConnected();
+  mqtt.loop();
+  updateStatusLed();
+  appLoop();
+
+  if (millis() - lastPublishCycleAt > PUBLISH_CYCLE_MS)
+  {
+    lastPublishCycleAt = millis();
+
+    JsonDocument doc;
+    doc["fw_title"] = FW_TITLE;
+    doc["fw_version"] = FW_VERSION;
+
+    JsonObject obj = doc.as<JsonObject>();
+    appCollectTelemetry(obj);
+
+    String json;
+    serializeJson(doc, json);
+    publishTelemetry(json);
+  }
+}
+#endif
+
 void meshNodeSetup()
 {
   pinMode(LED_PIN, OUTPUT);
@@ -636,9 +713,29 @@ void meshNodeSetup()
   Serial.begin(115200);
   delay(500);
 
+  String apName = "ESP-" + WiFi.macAddress();
+  apName.replace(":", "");
+
+#if MESH_ENABLED
+  // So sobe portal se nao conectar com credencial ja salva -- o board sem
+  // WiFi ainda participa da malha normalmente (relay), nao fica bloqueado
+  // esperando alguem configurar.
+  wm.setConfigPortalTimeout(180);
+  wm.autoConnect(apName.c_str());
+#else
+  // Sem malha nao ha fallback: fica tentando ate alguem configurar.
+  wm.autoConnect(apName.c_str());
+#endif
+
+  provisionedSSID = WiFi.SSID();
+  provisionedPass = WiFi.psk();
+
+  ensureMqttConfigured();
+
+#if MESH_ENABLED
   warnIfRouterChannelMismatch();
 
-  #ifdef MESH_DEBUG
+#ifdef MESH_DEBUG
   mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
 #else
   mesh.setDebugMsgTypes(ERROR | STARTUP);
@@ -648,7 +745,9 @@ void meshNodeSetup()
   mesh.onReceive(&onMeshReceive);
   mesh.onNewConnection(&onNewMeshConnection);
   mesh.onChangedConnections(&onMeshTopologyChanged);
-  mesh.stationManual(WIFI_SSID, WIFI_PASS);
+
+  if (provisionedSSID.length() > 0)
+    mesh.stationManual(provisionedSSID.c_str(), provisionedPass.c_str());
 
   meshMyNodeId = mesh.getNodeId();
   Serial.print("[MESH] Node ID: ");
@@ -666,18 +765,14 @@ void meshNodeSetup()
 
   if (myToken == nullptr)
     Serial.println("[SYS] Node ID nao esta na NODE_TABLE (.env) — relay funciona, publish proprio nao.");
-
-  mqtt.setServer(TB_HOST, TB_PORT);
-  mqtt.setCallback(mqttCallback);
-  mqtt.setKeepAlive(60);
-  mqtt.setSocketTimeout(5);
-  mqtt.setBufferSize(4096);
+#endif
 
   appSetup();
 }
 
 void meshNodeLoop()
 {
+#if MESH_ENABLED
   mesh.update();
   updateStatusLed();
   appLoop();
@@ -697,4 +792,7 @@ void meshNodeLoop()
     lastPublishCycleAt = millis();
     runPublishBurst();
   }
+#else
+  standaloneLoop();
+#endif
 }
