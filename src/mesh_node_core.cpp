@@ -12,7 +12,7 @@
 #endif
 
 // 0 = placa standalone: WiFiManager + MQTT direto + OTA, sem malha nenhuma.
-#define MESH_ENABLED 1
+#define MESH_ENABLED 0
 
 #if MESH_ENABLED
 #include <painlessMesh.h>
@@ -51,8 +51,8 @@ static const int MAX_PENDING = 10;
 // Valor inicial e limites do intervalo entre rajadas de publish. O valor em uso
 // (publishCycleMs) pode ser trocado em runtime via atributo compartilhado
 // "publish_cycle_ms" no ThingsBoard -- ver AGENTS.md.
-static const unsigned long PUBLISH_CYCLE_DEFAULT_MS = 30000;
-static const unsigned long PUBLISH_CYCLE_MIN_MS = 5000;
+static const unsigned long PUBLISH_CYCLE_DEFAULT_MS = 2000;
+static const unsigned long PUBLISH_CYCLE_MIN_MS = 2000;
 static const unsigned long PUBLISH_CYCLE_MAX_MS = 3600000;
 unsigned long publishCycleMs = PUBLISH_CYCLE_DEFAULT_MS;
 
@@ -125,7 +125,12 @@ void updateStatusLed()
 
 void publishTelemetry(const String &json)
 {
-  mqtt.publish(TOPIC_TELEMETRY, json.c_str());
+  bool ok = mqtt.publish(TOPIC_TELEMETRY, json.c_str());
+#ifdef MESH_DEBUG
+  Serial.printf("[MQTT] publish retorno=%d state=%d\n", ok, mqtt.state());
+#else
+  (void)ok;
+#endif
 }
 
 void publishOTAState(const String &state, const String &error = "")
@@ -739,6 +744,9 @@ void standaloneEnsureMqttConnected()
     mqtt.subscribe(TOPIC_RPC_REQUEST);
     requestSharedAttributes();
   }
+#ifdef MESH_DEBUG
+  Serial.printf("[MQTT] connect %s (state=%d)\n", mqtt.connected() ? "OK" : "FALHOU", mqtt.state());
+#endif
 }
 
 void standaloneLoop()
@@ -762,6 +770,9 @@ void standaloneLoop()
     String json;
     serializeJson(doc, json);
     publishTelemetry(json);
+#ifdef MESH_DEBUG
+    Serial.printf("[MQTT] publish (conectado=%d): %s\n", mqtt.connected(), json.c_str());
+#endif
   }
 }
 #endif
