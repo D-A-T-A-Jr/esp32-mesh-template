@@ -389,29 +389,13 @@ void parseOTAAttributes(JsonObject obj)
   startOTA();
 }
 
-void parsePublishCycleAttribute(JsonObject obj)
-{
-  if (obj["publish_cycle_ms"].isNull())
-    return;
-
-  unsigned long requested = obj["publish_cycle_ms"] | publishCycleMs;
-  if (requested >= PUBLISH_CYCLE_MIN_MS && requested <= PUBLISH_CYCLE_MAX_MS)
-    publishCycleMs = requested;
-}
-
-void parseSharedAttributes(JsonObject obj)
-{
-  parseOTAAttributes(obj);
-  parsePublishCycleAttribute(obj);
-}
-
 void requestSharedAttributes()
 {
   if (!mqtt.connected())
     return;
 
   String topic = "v1/devices/me/attributes/request/" + String(attrRequestId++);
-  mqtt.publish(topic.c_str(), "{\"sharedKeys\":\"fw_title,fw_version,fw_size,fw_checksum,fw_checksum_algorithm,publish_cycle_ms\"}");
+  mqtt.publish(topic.c_str(), "{\"sharedKeys\":\"fw_title,fw_version,fw_size,fw_checksum,fw_checksum_algorithm\"}");
 }
 
 void handleRpcRequest(const String &topicStr, uint8_t *payload, unsigned int length)
@@ -469,9 +453,9 @@ void mqttCallback(char *topic, uint8_t *payload, unsigned int length)
     return;
 
   if (doc["shared"].is<JsonObject>())
-    parseSharedAttributes(doc["shared"].as<JsonObject>());
+    parseOTAAttributes(doc["shared"].as<JsonObject>());
   else if (doc.is<JsonObject>())
-    parseSharedAttributes(doc.as<JsonObject>());
+    parseOTAAttributes(doc.as<JsonObject>());
 }
 
 #if MESH_ENABLED
@@ -756,7 +740,7 @@ void standaloneLoop()
   updateStatusLed();
   appLoop();
 
-  if (millis() - lastPublishCycleAt > publishCycleMs)
+  if (millis() - lastPublishCycleAt > PUBLISH_CYCLE_MS)
   {
     lastPublishCycleAt = millis();
 
@@ -859,7 +843,7 @@ void meshNodeLoop()
     sendHello();
   }
 
-  if (meshHasDirectWifi() && millis() - lastPublishCycleAt > publishCycleMs)
+  if (meshHasDirectWifi() && millis() - lastPublishCycleAt > PUBLISH_CYCLE_MS)
   {
     lastPublishCycleAt = millis();
     runPublishBurst();
