@@ -20,9 +20,25 @@
 
 #include "generated_secrets.h"
 
+// LED de status. ESP32 classico e ESP8266: GPIO2 (LED onboard das devkits).
+// ESP32-S3/C3 e outros chips: o LED_BUILTIN da placa escolhida no
+// platformio.ini (nas devkits oficiais e o LED RGB, que o digitalWrite do
+// core ja sabe acionar); GPIO2 neles e pino comum/strapping, nao LED.
+// Sobrescreve por placa com -D STATUS_LED_PIN=<gpio> (-1 = sem LED) e
+// -D STATUS_LED_ACTIVE_LOW=1 no build_flags, sem editar este arquivo.
+#if defined(STATUS_LED_PIN)
+static const int LED_PIN = STATUS_LED_PIN;
+#elif defined(ESP8266) || defined(CONFIG_IDF_TARGET_ESP32)
 static const int LED_PIN = 2;
+#elif defined(LED_BUILTIN)
+static const int LED_PIN = LED_BUILTIN;
+#else
+static const int LED_PIN = -1;
+#endif
 
-#if defined(ESP8266)
+#if defined(STATUS_LED_ACTIVE_LOW)
+static const bool LED_ACTIVE_LOW = STATUS_LED_ACTIVE_LOW;
+#elif defined(ESP8266)
 static const bool LED_ACTIVE_LOW = true;
 #else
 static const bool LED_ACTIVE_LOW = false;
@@ -30,6 +46,9 @@ static const bool LED_ACTIVE_LOW = false;
 
 static inline void setLed(bool on)
 {
+  if (LED_PIN < 0)
+    return;
+
   bool physicalHigh = LED_ACTIVE_LOW ? !on : on;
   digitalWrite(LED_PIN, physicalHigh ? HIGH : LOW);
 }
@@ -768,7 +787,8 @@ void standaloneLoop()
 
 void meshNodeSetup()
 {
-  pinMode(LED_PIN, OUTPUT);
+  if (LED_PIN >= 0)
+    pinMode(LED_PIN, OUTPUT);
   setLed(false);
 
   Serial.begin(115200);

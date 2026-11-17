@@ -176,7 +176,10 @@ malha.
 
 1. Edita só `src/main.cpp` — preenche os 4 hooks com os sensores reais.
 2. Adiciona os `lib_deps` que esses sensores precisarem no `platformio.ini` (o template
-   não vem com nenhuma lib de sensor por padrão).
+   não vem com nenhuma lib de sensor por padrão). Coloque no `[env:esp32]` — os envs
+   `esp32s3`/`esp32c3` herdam dele via `extends`; o `[env:esp8266]` tem lista própria.
+3. Escolhe o env do chip dessa placa (`esp32`, `esp32s3`, `esp32c3`, `esp8266`): muda
+   `default_envs` no `platformio.ini` e `PIO_ENV` no workflow de release.
 
 ## ESP8266
 
@@ -194,13 +197,50 @@ dois compilando o mesmo `mesh_node_core.cpp`/`main.cpp`. Pra buildar/gravar no E
 - **LED onboard**: `LED_ACTIVE_LOW` inverte a polaridade (D1 mini liga com `LOW`). Use
   sempre `setLed(bool)` no núcleo, nunca `digitalWrite(LED_PIN, ...)` direto.
 
-`scripts/build_and_upload_ota.py` só builda `ENV_NAME="esp32"` — se for distribuir OTA
-pra placas ESP8266 também, duplique o script/job apontando pro outro Device Profile e
-env, não misture os dois binários no mesmo pacote OTA.
+## ESP32-S3 / ESP32-C3
+
+`[env:esp32s3]` (board `esp32-s3-devkitc-1`) e `[env:esp32c3]` (board
+`esp32-c3-devkitm-1`) estendem o `[env:esp32]`: mesmas libs, mesmo
+`mesh_node_core.cpp`/`main.cpp`, só troca a placa. Buildar/gravar:
+`pio run -e esp32s3 -t upload` / `pio run -e esp32c3 -t upload`. Se a sua placa for
+outra (Super Mini, XIAO, LOLIN...), troque o `board` desse env no `platformio.ini`.
+
+Os três chips ESP32 participam da mesma malha entre si (e com ESP8266) — o protocolo
+não muda. O que muda por placa, tudo via `build_flags` no `platformio.ini`, sem editar
+o núcleo:
+
+- **LED de status**: no ESP32 clássico/ESP8266 continua GPIO2. No S3/C3 o núcleo usa o
+  `LED_BUILTIN` da placa (nas devkits oficiais é o LED RGB — GPIO48 no S3, GPIO8 no
+  C3 — que o `digitalWrite` do core já aciona). GPIO2 nesses chips **não** é LED: no
+  C3 é pino de strapping, no S3 é GPIO comum que você pode querer pra sensor. Pra
+  outra placa: `-D STATUS_LED_PIN=<gpio>` (`-1` = sem LED) e
+  `-D STATUS_LED_ACTIVE_LOW=1` se ligar com `LOW` (ex.: C3 Super Mini = GPIO8,
+  active-low; os exemplos já estão comentados no `platformio.ini`).
+- **Serial via USB nativa**: placa que só tem a USB do próprio chip (sem conversor
+  USB-serial, ex.: C3 Super Mini, várias S3 de 1 porta) precisa de
+  `-D ARDUINO_USB_MODE=1 -D ARDUINO_USB_CDC_ON_BOOT=1`, senão o `Serial` (inclusive o
+  `[MESH] Node ID: ...` do boot) sai na UART0 e não aparece no monitor. Devkits
+  oficiais com porta "UART" não precisam.
+- **Pinos dos sensores**: a numeração/disponibilidade de GPIO muda entre chips (C3 tem
+  só GPIO0–21; ADC, I2C padrão e pinos de strapping são diferentes). No `main.cpp`,
+  não assuma os pinos do ESP32 clássico.
+
+## OTA com mais de um chip
+
+Um binário só roda no chip pra que foi compilado. `scripts/build_and_upload_ota.py`
+builda **um** env por release: o da variável `PIO_ENV` (definida no
+`.github/workflows/esp32-release.yml`, padrão `esp32`). Num repo derivado cuja placa é
+S3/C3/ESP8266, troque `PIO_ENV` lá pro env certo.
+
+O pacote OTA é vinculado ao Device Profile, não ao device: **cada chip precisa do seu
+próprio Device Profile** no ThingsBoard (`TB_DEVICE_PROFILE_ID`). Se placas de chips
+diferentes compartilharem o mesmo profile e `FW_TITLE`, as do chip "errado" baixam o
+binário, falham na validação e tentam de novo a cada rajada, pra sempre.
 
 ## Debug
 
-`[env:esp32_debug]` / `[env:esp8266_debug]` compilam o mesmo firmware do env base
+`[env:esp32_debug]` / `[env:esp32s3_debug]` / `[env:esp32c3_debug]` /
+`[env:esp8266_debug]` compilam o mesmo firmware do env base
 correspondente, só com `-D MESH_DEBUG` a mais (`extends` no `platformio.ini`, sem
 duplicar `lib_deps`). Com isso ligado, `mesh_node_core.cpp` imprime no Serial:
 

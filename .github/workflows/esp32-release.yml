@@ -16,6 +16,8 @@ jobs:
 
     env:
       FW_TITLE: esp32-mesh-node
+      # Env do platformio.ini que vira o pacote OTA: esp32 | esp32s3 | esp32c3 | esp8266
+      PIO_ENV: esp32
 
       TB_HOST: ${{ secrets.TB_HOST }}
       TB_PORT: 1883

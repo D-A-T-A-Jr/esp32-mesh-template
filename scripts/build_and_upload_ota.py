@@ -7,7 +7,10 @@ from pathlib import Path
 
 import requests
 
-ENV_NAME = "esp32"
+# Env do platformio.ini que vira o pacote OTA (esp32, esp32s3, esp32c3, esp8266).
+# Um binario so roda no chip pra que foi compilado: cada chip precisa do seu
+# proprio Device Profile no ThingsBoard -- ver AGENTS.md.
+ENV_NAME = os.getenv("PIO_ENV", "").strip() or "esp32"
 FIRMWARE_PATH = Path(f".pio/build/{ENV_NAME}/firmware.bin")
 
 
