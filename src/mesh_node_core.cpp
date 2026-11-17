@@ -737,7 +737,9 @@ void ensureMqttConfigured()
   mqtt.setCallback(mqttCallback);
   mqtt.setKeepAlive(60);
   mqtt.setSocketTimeout(5);
-  mqtt.setBufferSize(4096);
+  // Chunk do OTA (OTA_CHUNK_SIZE) + topico + cabecalho MQTT precisa caber, senao o
+  // PubSubClient descarta o chunk calado e o OTA fica preso em DOWNLOADING.
+  mqtt.setBufferSize(OTA_CHUNK_SIZE + 1024);
 }
 
 #if !MESH_ENABLED
@@ -764,6 +766,8 @@ void standaloneLoop()
 {
   standaloneEnsureMqttConnected();
   mqtt.loop();
+  if (otaInProgress && millis() - lastChunkAt > OTA_CHUNK_TIMEOUT_MS)
+    failOTA("Timeout esperando chunk OTA");
   updateStatusLed();
   appLoop();
 
